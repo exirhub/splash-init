@@ -131,12 +131,6 @@ EOF
 sysctl --system
 echo "TCP buffer optimizations applied successfully!"
 
-download_file \
-  https://raw.githubusercontent.com/exirhub/exirvpn-balancer-config/main/receiver.sh \
-  /root/receiver.sh || exit 1
-chmod +x /root/receiver.sh
-/root/receiver.sh
-
 systemctl stop x-ui
 # EDIT BY: MEHTI v3.6
 while pgrep -x x-ui >/dev/null; do

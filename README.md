@@ -4,6 +4,10 @@ Install **XRM-1** automatically using an OVHcloud Post-Installation Script, Clou
 
 The installer configures persistent fallback DNS resolvers before accessing GitHub. This prevents DNS failures when cloud-init or package upgrades restart `systemd-resolved`.
 
+The Node.js/PM2 file-upload receiver (`server.js`, port `3000`) is no longer installed. XRM-1 does not install its npm dependencies or start the upload server.
+
+This change applies to new installer runs. It does not stop or uninstall Node.js, PM2, or the upload server on previously configured servers.
+
 ## OVHcloud Post-Installation Script (P-I-S)
 
 Paste the complete Bash script below into the **Post-Installation Script (P-I-S)** section when creating an Ubuntu or Debian server on OVHcloud.
