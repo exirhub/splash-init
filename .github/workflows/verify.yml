@@ -28,8 +28,10 @@ jobs:
           REQUIRE_SPLASH_SEEDS: '1'
         run: python3 -m unittest discover -s tests -p 'test_*.py' -v
       - name: Vendored sync regression checks
+        if: ${{ !cancelled() }}
         run: python3 vendor/proxyfleet-xui-sync/tests/smoke_test.py
       - name: Verify authenticated GitHub text and binary downloads
+        if: ${{ !cancelled() }}
         env:
           SPLASH_GITHUB_TOKEN: ${{ github.token }}
           SPLASH_REF: main
@@ -40,6 +42,14 @@ jobs:
           trap cleanup EXIT
           revision="$(resolve_ref)"
           download_splash_file install.sh "$revision" "$WORK_DIR/install.sh"
-          download_splash_file x-ui-ads.db "$revision" "$WORK_DIR/x-ui-ads.db"
+          # Authentication and binary transport are independent of the separate
+          # required advertising-seed/routing gate in test_install.py.
+          download_splash_file x-ui.db "$revision" "$WORK_DIR/x-ui.db"
           bash -n "$WORK_DIR/install.sh"
-          python3 helpers/manage.py validate-seed "$WORK_DIR/x-ui-ads.db"
+          python3 - "$WORK_DIR/x-ui.db" <<'PY'
+          import pathlib, sqlite3, sys
+          path = pathlib.Path(sys.argv[1]).resolve()
+          with sqlite3.connect(path.as_uri() + '?mode=ro', uri=True) as db:
+              assert db.execute('PRAGMA quick_check').fetchone() == ('ok',)
+          print('Authenticated text and binary downloads verified')
+          PY
