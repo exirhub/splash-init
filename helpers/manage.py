@@ -107,9 +107,9 @@ def template_config(path):
     return config
 
 
-def check_routing(config, tag):
-    if not any(isinstance(rule, dict) and rule.get("balancerTag") == tag for rule in config["routing"]["rules"]):
-        raise ValueError("The template has no routing rule targeting the configured ProxyFleet balancer. Routing was not changed.")
+def has_balancer_route(config, tag):
+    return any(isinstance(rule, dict) and rule.get("balancerTag") == tag
+               for rule in config["routing"]["rules"])
 
 
 def managed_pool(config, tag):
@@ -131,9 +131,10 @@ def managed_pool(config, tag):
 
 def validate_seed(path, tag):
     config = template_config(path)
-    check_routing(config, tag)
     tags, selector = managed_pool(config, tag)
-    print(json.dumps({"database": "valid", "managed_outbounds": len(tags), "selector_entries": len(selector), "balancer_routing": True}))
+    print(json.dumps({"database": "valid", "managed_outbounds": len(tags),
+                      "selector_entries": len(selector),
+                      "balancer_routing": has_balancer_route(config, tag)}))
 
 
 def backup_database(source, backup):
@@ -163,7 +164,6 @@ def report_status(env_file):
     environment = read_environment(env_file)
     tag = environment.get("XUI_BALANCER_TAG", "ADMOB-BALANCER")
     config = template_config(environment.get("XUI_DB", "/etc/x-ui/x-ui.db"))
-    check_routing(config, tag)
     tags, selector = managed_pool(config, tag)
     pending = []
     if not tags or len(tags) != len(set(tags)) or len(selector) != len(tags) or set(selector) != set(tags):
@@ -193,7 +193,8 @@ def report_status(env_file):
             raise ValueError("Cannot validate the Xray runtime configuration.") from error
     print(json.dumps({"configuration_ready": not pending, "managed_outbounds": len(tags),
                       "selector_entries": len(selector), "pending": pending,
-                      "note": "Checks installed configuration only; not feed freshness or end-to-end connectivity."}))
+                      "balancer_routing": has_balancer_route(config, tag),
+                      "note": "Checks installed sync configuration only; routing rules are preserved, not imposed. Does not verify feed freshness or end-to-end connectivity."}))
     return 2 if pending else 0
 
 
