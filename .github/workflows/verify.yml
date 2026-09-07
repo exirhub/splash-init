@@ -29,3 +29,17 @@ jobs:
         run: python3 -m unittest discover -s tests -p 'test_*.py' -v
       - name: Vendored sync regression checks
         run: python3 vendor/proxyfleet-xui-sync/tests/smoke_test.py
+      - name: Verify authenticated GitHub text and binary downloads
+        env:
+          SPLASH_GITHUB_TOKEN: ${{ github.token }}
+          SPLASH_REF: main
+        run: |
+          set +x
+          source install.sh
+          WORK_DIR="$(mktemp -d)"
+          trap cleanup EXIT
+          revision="$(resolve_ref)"
+          download_splash_file install.sh "$revision" "$WORK_DIR/install.sh"
+          download_splash_file x-ui-ads.db "$revision" "$WORK_DIR/x-ui-ads.db"
+          bash -n "$WORK_DIR/install.sh"
+          python3 helpers/manage.py validate-seed "$WORK_DIR/x-ui-ads.db"

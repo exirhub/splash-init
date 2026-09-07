@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Source-safe; only main performs installation or changes the host.
+set +x
 set -Eeuo pipefail
+# Keep a supplied token in this shell only. Pass it explicitly to our installer,
+# never to curl's environment or the separately maintained public 3x-ui script.
+export -n SPLASH_GITHUB_TOKEN
 
 fail() { printf 'ERROR: %s\n' "$*" >&2; return 1; }
 note() { printf '\n%s\n' "$*"; }
@@ -14,6 +18,9 @@ SPLASH_REF: commit/tag/branch (main); SPLASH_DB_TEMPLATE: x-ui-ads.db (default).
 An explicitly selected x-ui.db must pass the same balancer/routing validation;
 the legacy generic template in this repository is not compatible with sync.
 PROXYFLEET_OUTBOUNDS_URL/TOKEN: initial values; existing settings are preserved.
+SPLASH_GITHUB_TOKEN: GitHub token with Contents: read for this private repository.
+Remote downloads prompt for the token when a terminal is available. No token is
+saved; without a terminal, pass SPLASH_GITHUB_TOKEN for this invocation.
 Exit 2: installation present, synchronization still pending.
 EOF
 }
@@ -93,16 +100,82 @@ ensure_github_dns() {
 download_file() {
   local url="$1" destination="$2"
   ensure_github_dns || return 1
-  curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 \
+  curl -q --fail --location --silent --show-error --proto '=https' --tlsv1.2 \
     --retry 5 --retry-all-errors --retry-delay 3 --retry-max-time 180 \
     --connect-timeout 15 --max-time 120 --output "$destination" "$url" || return
   [[ -s "$destination" ]] || fail "Download was empty: $url"
+}
+require_splash_token() {
+  set +x
+  export -n SPLASH_GITHUB_TOKEN
+  local tty_fd
+  if [[ -z ${SPLASH_GITHUB_TOKEN:-} ]]; then
+    if { exec {tty_fd}<>/dev/tty; } 2>/dev/null; then
+      printf 'GitHub token for exirhub/splash-init (hidden): ' >&"$tty_fd"
+      if ! IFS= read -r -s -u "$tty_fd" SPLASH_GITHUB_TOKEN; then
+        printf '\n' >&"$tty_fd"
+        exec {tty_fd}>&-
+        fail 'A GitHub token is required for this private repository.'
+        return 1
+      fi
+      printf '\n' >&"$tty_fd"
+      exec {tty_fd}>&-
+    else
+      fail 'Private repository: set SPLASH_GITHUB_TOKEN for this invocation, or run from a terminal for a hidden token prompt.'
+      return 1
+    fi
+  fi
+  [[ ${SPLASH_GITHUB_TOKEN:-} =~ ^[A-Za-z0-9_]+$ ]] || {
+    fail 'Invalid GitHub token format; paste the token only, without spaces.'
+    return 1
+  }
+}
+github_api_file() {
+  set +x
+  local url="$1" destination="$2" accept="${3:-application/vnd.github.raw+json}" http_status
+  # No redirects or custom curl configuration: credentials are restricted to
+  # these two APIs in this repository, including when an endpoint redirects.
+  [[ "$url" =~ ^https://api[.]github[.]com/repos/exirhub/splash-init/(contents/[A-Za-z0-9][A-Za-z0-9._/-]*[?]ref=[A-Za-z0-9][A-Za-z0-9._/-]*|commits/[A-Za-z0-9][A-Za-z0-9._/-]*)$ && "$url" != *..* ]] || {
+    fail 'Refusing authenticated download outside the splash-init repository API.'
+    return 1
+  }
+  case "$accept" in
+    application/vnd.github.raw+json|application/vnd.github+json) ;;
+    *) fail 'Invalid GitHub response format.'; return 1 ;;
+  esac
+  require_splash_token || return 1
+  if ! http_status="$(
+    printf 'header = "Authorization: Bearer %s"\n' "$SPLASH_GITHUB_TOKEN" |
+      curl -q --config - --fail --silent --show-error --proto '=https' --tlsv1.2 \
+        --retry 5 --retry-all-errors --retry-delay 3 --retry-max-time 180 \
+        --connect-timeout 15 --max-time 120 --max-redirs 0 \
+        --header "Accept: $accept" --header 'X-GitHub-Api-Version: 2022-11-28' \
+        --write-out '%{http_code}' --output "$destination" "$url"
+  )"; then
+    rm -f -- "$destination"
+    fail 'GitHub download failed. Check network access and token access to exirhub/splash-init (Contents: read; organization approval if required).'
+    return 1
+  fi
+  [[ "$http_status" == 200 ]] || {
+    rm -f -- "$destination"
+    fail "GitHub returned HTTP $http_status; redirects and other unexpected responses are refused."
+    return 1
+  }
+  [[ -s "$destination" ]] || {
+    rm -f -- "$destination"
+    fail 'GitHub returned an empty file.'
+    return 1
+  }
+}
+download_splash_file() {
+  local path="$1" ref="$2" destination="$3"
+  github_api_file "https://api.github.com/repos/exirhub/splash-init/contents/$path?ref=$ref" "$destination"
 }
 resolve_ref() {
   local ref="${SPLASH_REF:-main}" response
   if [[ "$ref" =~ ^[a-fA-F0-9]{40}$ ]]; then printf '%s\n' "${ref,,}"; return; fi
   response="$(mktemp "$WORK_DIR/commit.XXXXXX")"
-  download_file "https://api.github.com/repos/exirhub/splash-init/commits/$ref" "$response" || return
+  github_api_file "https://api.github.com/repos/exirhub/splash-init/commits/$ref" "$response" 'application/vnd.github+json' || return
   python3 - "$response" <<'PY'
 import json, re, sys
 with open(sys.argv[1], encoding="utf-8") as handle:
@@ -129,13 +202,14 @@ prepare_bundle() {
     BUNDLE_REF=local
     note "Using complete local splash-init checkout: $BUNDLE_DIR"
   else
+    require_splash_token
     BUNDLE_REF="$(resolve_ref)"
     BUNDLE_DIR="$WORK_DIR/bundle"
     install -d -m 700 "$BUNDLE_DIR"
     note "Downloading splash-init bundle at commit $BUNDLE_REF"
     while IFS= read -r file; do
       install -d -m 700 "$(dirname -- "$BUNDLE_DIR/$file")"
-      download_file "https://raw.githubusercontent.com/exirhub/splash-init/$BUNDLE_REF/$file" "$BUNDLE_DIR/$file"
+      download_splash_file "$file" "$BUNDLE_REF" "$BUNDLE_DIR/$file"
     done < <(bundle_files)
   fi
   python3 -m py_compile "$BUNDLE_DIR/helpers/manage.py" "$BUNDLE_DIR/vendor/proxyfleet-xui-sync/proxyfleet-xui-sync.py"
@@ -147,7 +221,7 @@ prepare_seed() {
   SEED_PATH="$BUNDLE_DIR/$template"
   if [[ ! -s "$SEED_PATH" ]]; then
     [[ "$BUNDLE_REF" != local ]] || { fail "Local checkout is missing $template."; return 1; }
-    download_file "https://raw.githubusercontent.com/exirhub/splash-init/$BUNDLE_REF/$template" "$SEED_PATH"
+    download_splash_file "$template" "$BUNDLE_REF" "$SEED_PATH"
   fi
   python3 "$BUNDLE_DIR/helpers/manage.py" validate-seed "$SEED_PATH"
 }
@@ -276,26 +350,34 @@ install_sync() {
   systemctl is-enabled --quiet proxyfleet-xui-sync.timer || { fail 'ProxyFleet timer is not enabled.'; return 1; }
   systemctl is-active --quiet proxyfleet-xui-sync.timer || fail 'ProxyFleet timer is not running.'
 }
+render_updater() {
+  cat <<'UPDATER'
+#!/usr/bin/env bash
+set +x
+set -Eeuo pipefail
+export -n SPLASH_GITHUB_TOKEN
+UPDATER
+  # Function declarations contain no token values, so the updater keeps no
+  # credentials. A hidden prompt works on a fresh shell without any setup.
+  declare -f fail require_splash_token github_api_file download_splash_file
+  cat <<'UPDATER'
+[[ $EUID -eq 0 ]] || { echo 'Run splash-init-update as root.' >&2; exit 1; }
+ref="${SPLASH_REF:-main}"
+[[ "$ref" =~ ^[a-zA-Z0-9][a-zA-Z0-9._/-]*$ ]] || { echo 'Invalid SPLASH_REF.' >&2; exit 1; }
+command -v curl >/dev/null || { echo 'Install curl and ca-certificates first.' >&2; exit 1; }
+work="$(mktemp -d /tmp/splash-init-update.XXXXXX)"
+trap 'rm -rf -- "$work"' EXIT
+require_splash_token
+download_splash_file install.sh "$ref" "$work/install.sh"
+bash -n "$work/install.sh"
+SPLASH_GITHUB_TOKEN="$SPLASH_GITHUB_TOKEN" bash "$work/install.sh" --update-only "$@"
+UPDATER
+}
 install_updater() {
   install -d -m 755 /usr/local/lib/splash-init /usr/local/sbin
   install -o root -g root -m 750 "$BUNDLE_DIR/install.sh" /usr/local/lib/splash-init/install.sh
   printf '%s\n' "$BUNDLE_REF" > /usr/local/lib/splash-init/installed-ref
-  cat > /usr/local/sbin/splash-init-update <<'UPDATER'
-#!/usr/bin/env bash
-set -Eeuo pipefail
-[[ $EUID -eq 0 ]] || { echo 'Run splash-init-update as root.' >&2; exit 1; }
-ref="${SPLASH_REF:-main}"
-[[ "$ref" =~ ^[a-zA-Z0-9][a-zA-Z0-9._/-]*$ ]] || { echo 'Invalid SPLASH_REF.' >&2; exit 1; }
-work="$(mktemp -d /tmp/splash-init-update.XXXXXX)"
-trap 'rm -rf -- "$work"' EXIT
-curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 \
-  --retry 5 --retry-all-errors --retry-delay 3 --retry-max-time 180 \
-  --connect-timeout 15 --max-time 120 \
-  --output "$work/install.sh" \
-  "https://raw.githubusercontent.com/exirhub/splash-init/$ref/install.sh"
-bash -n "$work/install.sh"
-bash "$work/install.sh" --update-only "$@"
-UPDATER
+  render_updater > /usr/local/sbin/splash-init-update
   chmod 750 /usr/local/sbin/splash-init-update
   chown root:root /usr/local/sbin/splash-init-update
 }
