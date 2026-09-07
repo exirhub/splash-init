@@ -2,7 +2,7 @@
 
 نصب یکپارچهٔ **3x-ui + تنظیمات Splash + ProxyFleet XUI Sync** روی Ubuntu یا Debian.
 برای نصب Sync دیگر به کلون‌کردن یا اجرای نصب‌کنندهٔ مخزن دیگری نیاز نیست.
-
+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
 ## نصب مخزن خصوصی؛ بدون تنظیم Git یا SSH
 
 این مخزن خصوصی است؛ لینک خام بدون احراز هویت ممکن است `404` بدهد.
