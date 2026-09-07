@@ -1,0 +1,14 @@
+{
+  "repository": "https://github.com/exirhub/proxyfleet-xui-sync",
+  "commit": "cba805f382da7ec104ffb73959e82ea8ba84ad9e",
+  "files": {
+    ".gitignore": "58672f55a8f827a17c752e9cc0a0e8e7b253502f843fbfdf24854aaac64bacf2",
+    "README.md": "6a1ab38d3d1b88814bd8782358b1ff0823619246cca3815fb83190a13ba27e18",
+    "install.sh": "ccbe974ed6db8edbaf0dfe9f59e9c73d5b5fdde5bc2f00c0da6f591bc3e0e67b",
+    "proxyfleet-xui-sync.env.example": "fe905713becd495126de07e1c66a98fda1fe397608777299c0217b3267e019f8",
+    "proxyfleet-xui-sync.py": "946f63c9457dfafab18f7df4fbe6e4e3d0b1f38ac34ad15845960efe558e03dd",
+    "systemd/proxyfleet-xui-sync.service": "21241b287454e952ce6267c4da9a124cf7e2c45a2e3b8155d0b8767155ed7e2f",
+    "systemd/proxyfleet-xui-sync.timer": "03697b1d89106b3506b905416eafeab87d69e51fe14a909a4026dbaf01146bfd",
+    "tests/smoke_test.py": "b515bc4c6080659658309590606aeb877da26a7e35c6bb211539ee9a2974f04a"
+  }
+}

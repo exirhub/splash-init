@@ -1,0 +1,31 @@
+name: Verify Splash Init
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check shell syntax
+        run: |
+          bash -n install.sh
+          bash -n aws.sh
+          bash -n vendor/proxyfleet-xui-sync/install.sh
+      - name: Safe installer tests and read-only seed validation
+        env:
+          REQUIRE_SPLASH_SEEDS: '1'
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Vendored sync regression checks
+        run: python3 vendor/proxyfleet-xui-sync/tests/smoke_test.py
