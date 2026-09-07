@@ -70,13 +70,35 @@ class HelperTests(unittest.TestCase):
         for private_value in ("fixture-user", "fixture-password", "192.0.2.77"):
             self.assertNotIn(private_value, result.stdout + result.stderr)
 
-    def test_seed_without_an_admob_routing_reference_is_rejected_without_changes(self):
+    def test_seed_without_advertising_routing_is_accepted_without_fabricating_rules(self):
         database = self.directory / "seed.db"
-        create_database(database, route_to_balancer=False)
+        config = create_database(database, route_to_balancer=False)
         original = database.read_bytes()
         result = self.invoke("validate-seed", database)
-        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse(json.loads(result.stdout)["balancer_routing"])
         self.assertEqual(database.read_bytes(), original)
+        with sqlite3.connect(database) as connection:
+            stored = json.loads(connection.execute(
+                "SELECT value FROM settings WHERE key='xrayTemplateConfig'"
+            ).fetchone()[0])
+        self.assertEqual(stored["routing"]["rules"], config["routing"]["rules"])
+        self.assertFalse(any("balancerTag" in rule for rule in stored["routing"]["rules"]))
+
+    def test_malformed_xray_structure_is_rejected_without_changes(self):
+        for replacement in ([], {"outbounds": {}, "routing": {}},
+                            {"outbounds": [], "routing": {"rules": {}}}):
+            with self.subTest(config=replacement):
+                database = self.directory / "invalid-structure.db"
+                database.unlink(missing_ok=True)
+                create_database(database)
+                with sqlite3.connect(database) as connection:
+                    connection.execute("UPDATE settings SET value=? WHERE key='xrayTemplateConfig'",
+                                       (json.dumps(replacement),))
+                original = database.read_bytes()
+                result = self.invoke("validate-seed", database)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(database.read_bytes(), original)
 
     def test_invalid_database_is_rejected(self):
         database = self.directory / "invalid.db"
@@ -188,6 +210,23 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(json.loads(result.stdout)["configuration_ready"])
         self.assertNotIn("fixture-password", result.stdout + result.stderr)
+
+    def test_synchronized_pool_is_ready_without_adding_advertising_routing(self):
+        environment, runtime, _ = self.status_fixture()
+        database = self.directory / "x-ui.db"
+        config = json.loads(runtime.read_text())
+        config["routing"]["rules"] = [{"type": "field", "outboundTag": "direct"}]
+        with sqlite3.connect(database) as connection:
+            connection.execute("UPDATE settings SET value=? WHERE key='xrayTemplateConfig'",
+                               (json.dumps(config),))
+        runtime.write_text(json.dumps(config))
+        original_database, original_runtime = database.read_bytes(), runtime.read_bytes()
+        result = self.invoke("status", "--env-file", environment)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(json.loads(result.stdout)["configuration_ready"])
+        self.assertFalse(json.loads(result.stdout)["balancer_routing"])
+        self.assertEqual(database.read_bytes(), original_database)
+        self.assertEqual(runtime.read_bytes(), original_runtime)
 
     def test_missing_runtime_is_pending_and_not_reported_as_ready(self):
         environment, runtime, _ = self.status_fixture()
@@ -442,10 +481,10 @@ seed_database "$FIXTURE_DIRECTORY/seed.db"
 
 class SeedDatabaseTests(unittest.TestCase):
     def test_repository_database_integrity(self):
-        if not any((ROOT / name).exists() for name in ("x-ui.db", "x-ui-ads.db")):
+        if not (ROOT / "x-ui.db").exists():
             if os.environ.get("REQUIRE_SPLASH_SEEDS") != "1":
                 self.skipTest("Binary repository seeds are validated in GitHub CI")
-        for filename in ("x-ui.db", "x-ui-ads.db"):
+        for filename in ("x-ui.db",):
             with self.subTest(filename=filename):
                 path = ROOT / filename
                 if not path.exists():
@@ -490,11 +529,7 @@ class SeedDatabaseTests(unittest.TestCase):
                     [sys.executable, str(HELPER), "validate-seed", str(path)],
                     text=True, capture_output=True, timeout=10,
                 )
-                if filename == "x-ui-ads.db":
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                else:
-                    self.assertNotEqual(result.returncode, 0,
-                                        "The generic template must not silently acquire ad routing")
+                self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(path.read_bytes(), original)
 
 

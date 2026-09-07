@@ -11,12 +11,11 @@ note() { printf '\n%s\n' "$*"; }
 usage() {
   cat <<'EOF'
 Usage: sudo bash install.sh [--update-only]
-Fresh install uses x-ui-ads.db only when no database existed.
+Fresh install uses x-ui.db only when no database existed.
 Re-running preserves the existing database and installed 3x-ui version.
 --update-only updates integration without host tuning or x-ui installation.
-SPLASH_REF: commit/tag/branch (main); SPLASH_DB_TEMPLATE: x-ui-ads.db (default).
-An explicitly selected x-ui.db must pass the same balancer/routing validation;
-the legacy generic template in this repository is not compatible with sync.
+SPLASH_REF: commit/tag/branch (main); SPLASH_DB_TEMPLATE: x-ui.db (only).
+The seed is validated before installation; its existing routing rules are kept.
 PROXYFLEET_OUTBOUNDS_URL/TOKEN: initial values; existing settings are preserved.
 SPLASH_GITHUB_TOKEN: GitHub token with Contents: read for this private repository.
 Remote downloads prompt for the token when a terminal is available. No token is
@@ -34,7 +33,7 @@ preflight() {
   command -v systemctl >/dev/null && [[ -d /run/systemd/system ]] || { fail 'A running systemd host is required.'; return 1; }
   command -v flock >/dev/null || { fail 'Install util-linux (flock) before running this installer.'; return 1; }
   [[ ${SPLASH_REF:-main} =~ ^[a-zA-Z0-9][a-zA-Z0-9._/-]*$ ]] || { fail 'Invalid SPLASH_REF.'; return 1; }
-  [[ ${SPLASH_DB_TEMPLATE:-x-ui-ads.db} == x-ui-ads.db || ${SPLASH_DB_TEMPLATE:-x-ui-ads.db} == x-ui.db ]] || { fail 'Invalid SPLASH_DB_TEMPLATE.'; return 1; }
+  [[ ${SPLASH_DB_TEMPLATE:-x-ui.db} == x-ui.db ]] || { fail 'SPLASH_DB_TEMPLATE must be x-ui.db.'; return 1; }
 }
 install_prerequisites() {
   local missing=0 command
@@ -125,7 +124,9 @@ require_splash_token() {
       return 1
     fi
   fi
-  [[ ${SPLASH_GITHUB_TOKEN:-} =~ ^[A-Za-z0-9_]+$ ]] || {
+  # RFC 6750 Bearer syntax also accepts GitHub Actions installation tokens.
+  # Quotes, backslashes and whitespace cannot enter the curl config stream.
+  [[ ${SPLASH_GITHUB_TOKEN:-} =~ ^[A-Za-z0-9._~+/-]+=*$ ]] || {
     fail 'Invalid GitHub token format; paste the token only, without spaces.'
     return 1
   }
@@ -217,7 +218,7 @@ prepare_bundle() {
   bash -n "$BUNDLE_DIR/vendor/proxyfleet-xui-sync/install.sh"
 }
 prepare_seed() {
-  local template="${SPLASH_DB_TEMPLATE:-x-ui-ads.db}"
+  local template="${SPLASH_DB_TEMPLATE:-x-ui.db}"
   SEED_PATH="$BUNDLE_DIR/$template"
   if [[ ! -s "$SEED_PATH" ]]; then
     [[ "$BUNDLE_REF" != local ]] || { fail "Local checkout is missing $template."; return 1; }

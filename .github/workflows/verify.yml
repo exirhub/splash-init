@@ -43,7 +43,7 @@ jobs:
           revision="$(resolve_ref)"
           download_splash_file install.sh "$revision" "$WORK_DIR/install.sh"
           # Authentication and binary transport are independent of the separate
-          # required advertising-seed/routing gate in test_install.py.
+          # required default x-ui.db structure/integrity gate in test_install.py.
           download_splash_file x-ui.db "$revision" "$WORK_DIR/x-ui.db"
           bash -n "$WORK_DIR/install.sh"
           python3 - "$WORK_DIR/x-ui.db" <<'PY'

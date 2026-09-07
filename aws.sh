@@ -31,7 +31,7 @@ require_splash_token ()
             return 1;
         fi;
     fi;
-    [[ ${SPLASH_GITHUB_TOKEN:-} =~ ^[A-Za-z0-9_]+$ ]] || { 
+    [[ ${SPLASH_GITHUB_TOKEN:-} =~ ^[A-Za-z0-9._~+/-]+=*$ ]] || { 
         fail 'Invalid GitHub token format; paste the token only, without spaces.';
         return 1
     }

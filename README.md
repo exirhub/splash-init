@@ -35,7 +35,7 @@ if ! command -v curl >/dev/null || [[ ! -s /etc/ssl/certs/ca-certificates.crt ]]
 fi
 read -r -s -p 'GitHub token: ' SPLASH_GITHUB_TOKEN </dev/tty
 printf '\n' >/dev/tty
-[[ "$SPLASH_GITHUB_TOKEN" =~ ^[A-Za-z0-9_]+$ ]] || { echo 'Invalid GitHub token format.' >&2; exit 1; }
+[[ "$SPLASH_GITHUB_TOKEN" =~ ^[A-Za-z0-9._~+/-]+=*$ ]] || { echo 'Invalid GitHub token format.' >&2; exit 1; }
 export -n SPLASH_GITHUB_TOKEN
 work="$(mktemp -d /tmp/splash-bootstrap.XXXXXX)"
 trap 'unset SPLASH_GITHUB_TOKEN; rm -rf -- "$work"' EXIT
@@ -61,7 +61,7 @@ GitHub شما را دریافت نمی‌کند. این توکن با `PROXYFLEE
 1. بررسی root، Ubuntu/Debian و systemd و جلوگیری از نصب هم‌زمان.
 2. نصب پیش‌نیازها و اعمال روال قبلی DNS، Swap یک‌گیگابایتی و تنظیمات TCP.
 3. نصب غیرتعاملی 3x-ui در صورت نبودن آن.
-4. اعتبارسنجی `x-ui-ads.db` و ورود آن **فقط وقتی پیش از نصب دیتابیسی وجود نداشته باشد**.
+4. اعتبارسنجی `x-ui.db` و ورود آن **فقط وقتی پیش از نصب دیتابیسی وجود نداشته باشد**.
 5. نصب نسخهٔ همراه ProxyFleet Sync، تنظیمات و سرویس systemd.
 6. اجرای اولین Sync و فعال‌کردن تایمر **۱۰دقیقه‌ای** با حداکثر ۳۰ ثانیه تأخیر تصادفی.
 7. بررسی مجموعهٔ `TH-*`، Selector مربوط به `ADMOB-BALANCER` و تنظیمات runtime.
@@ -100,17 +100,16 @@ commit، tag یا branch باشد؛ مقدار پیش‌فرض `main` است.
 
 ## دیتابیس و مسیریابی
 
-قالب پیش‌فرض **`x-ui-ads.db`** است و از قبل قاعدهٔ مسیریابی به `ADMOB-BALANCER`
-را دارد. این قالب در شروع هیچ Outbound مدیریت‌شدهٔ `TH-*` ندارد؛ بنابراین
-اولین فهرست معتبر و Ready از ProxyFleet فوراً وارد می‌شود.
+تنها قالب نصب **`x-ui.db`** همین مخزن است. سلامت SQLite و ساختار تنظیمات آن
+قبل از ورود بررسی می‌شود. قواعد مسیریابی داخل همین فایل حفظ می‌شوند؛ داشتن
+قاعدهٔ تبلیغ یا ارجاع به `ADMOB-BALANCER` شرط نصب نیست.
 
-فایل قدیمی `x-ui.db` در مخزن حفظ شده، اما قاعدهٔ لازم برای این Balancer را
-ندارد و قالب مناسبی برای نصب یکپارچه نیست. اعتبارسنجی آن را پیش از تغییر
-دیتابیس رد می‌کند. نصب‌کننده قواعد دلخواه مسیریابی ایجاد یا حدس نمی‌زند.
+Sync طبق رفتار خود Outboundهای `TH-*` و Selector مربوط به `ADMOB-BALANCER`
+را همگام می‌کند و به قواعد مسیریابی دست نمی‌زند. اگر قالب اولیه Outbound
+مدیریت‌شده نداشته باشد، اولین فهرست معتبر و Ready فوراً وارد می‌شود.
 
 اگر `/etc/x-ui/x-ui.db` از قبل وجود داشته باشد، نصب‌کننده آن را حفظ می‌کند؛
-این دیتابیس باید خودش تنظیمات سازگار با Balancer را داشته باشد. قالب اولیه
-هیچ‌وقت برای بازنویسی کاربران یا تنظیمات موجود استفاده نمی‌شود.
+قالب اولیه هیچ‌وقت برای بازنویسی کاربران یا تنظیمات موجود استفاده نمی‌شود.
 
 نصب‌کننده سرویس استاندارد `x-ui` و مسیر `/etc/x-ui/x-ui.db` را مدیریت می‌کند.
 اگر تنظیمات Sync موجود به سرویس یا دیتابیس دیگری اشاره کند، پیش از تغییرات
@@ -168,6 +167,8 @@ journalctl -u proxyfleet-xui-sync.service -n 100 --no-pager -o cat
 Sync ممکن است به دلیل Readyنبودن فهرست یا قواعد پایداری، اجرا را عقب بیندازد.
 بررسی پایان نصب، سازگاری تنظیمات است؛ تست اتصال از ایران یا تضمین تازه‌بودن
 پاسخ ProxyFleet نیست. جزئیات اجرای جاری در لاگ سرویس ثبت می‌شود.
+فیلد `balancer_routing` فقط نشان می‌دهد قواعد موجود به Balancer ارجاع دارند
+یا نه؛ مقدار `false` جلوی نصب یا همگام‌سازی را نمی‌گیرد و قاعده‌ای تحمیل نمی‌کند.
 
 پس از رفع مشکل، برای تلاش دوباره `sudo splash-init-update` را اجرا کنید.
 
@@ -186,7 +187,7 @@ set -Eeuo pipefail
 umask 077
 SPLASH_GITHUB_TOKEN='REPLACE_WITH_GITHUB_TOKEN'
 export -n SPLASH_GITHUB_TOKEN
-[[ "$SPLASH_GITHUB_TOKEN" =~ ^[A-Za-z0-9_]+$ ]] || { echo 'Invalid GitHub token format.' >&2; exit 1; }
+[[ "$SPLASH_GITHUB_TOKEN" =~ ^[A-Za-z0-9._~+/-]+=*$ ]] || { echo 'Invalid GitHub token format.' >&2; exit 1; }
 export DEBIAN_FRONTEND=noninteractive
 apt-get -o Acquire::Retries=5 update
 apt-get -o Acquire::Retries=5 install -y ca-certificates curl

@@ -17,7 +17,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TOKEN = "github_pat_PRIVATE_FIXTURE_123"
+TOKEN = "ghs_PRIVATE.FIXTURE/+~123-=="
 COMMIT = "a" * 40
 
 # The fake transport records only artificial test data. No real network is used.
@@ -76,8 +76,8 @@ class PrivateGitHubTests(unittest.TestCase):
         self.work.mkdir()
         self.seed = self.directory / "fixture.db"
         config = {
-            "outbounds": [],
-            "routing": {"rules": [{"balancerTag": "ADMOB-BALANCER"}]},
+            "outbounds": [{"tag": "direct", "protocol": "freedom", "settings": {}}],
+            "routing": {"rules": [{"type": "field", "outboundTag": "direct"}]},
         }
         with sqlite3.connect(self.seed) as database:
             database.execute("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)")
@@ -163,8 +163,9 @@ class PrivateGitHubTests(unittest.TestCase):
             self.assert_private_request(request)
         for request in contents:
             self.assertIn("ref=" + COMMIT, request["url"])
-        self.assertTrue(any("/contents/x-ui-ads.db?" in item["url"] for item in contents))
-        self.assertEqual((self.work / "bundle/x-ui-ads.db").read_bytes(), self.seed.read_bytes())
+        self.assertTrue(any("/contents/x-ui.db?" in item["url"] for item in contents))
+        self.assertFalse(any("x-ui-ads.db" in item["url"] for item in contents))
+        self.assertEqual((self.work / "bundle/x-ui.db").read_bytes(), self.seed.read_bytes())
 
     def test_public_3x_ui_download_has_no_github_credential(self):
         result = self.invoke('download_file '
@@ -198,12 +199,25 @@ class PrivateGitHubTests(unittest.TestCase):
         self.assertEqual(self.requests(), [])
 
     def test_invalid_token_is_rejected_without_header_injection_or_disclosure(self):
-        for token in ("bad-token\nheader=Injected", "bad\"token", "bad token"):
+        for token in ("bad-token\nheader=Injected", "bad\"token", "bad token",
+                      "bad\\token", "bad'token", "bad\rtoken", "bad\ttoken", "bad=token"):
             with self.subTest(token=repr(token)):
                 result = self.invoke('download_splash_file install.sh main "$WORK_DIR/install.sh"',
                                      token=token)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(self.requests(), [])
+                self.assertNotIn(token, result.stdout + result.stderr)
+
+    def test_standard_bearer_token_characters_are_preserved(self):
+        for token in ("github_pat_letters_123", "ghs_a.b/c+d~e-f", "payload=="):
+            with self.subTest(token=token):
+                result = self.invoke('download_splash_file install.sh main "$WORK_DIR/install.sh"',
+                                     token=token)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                request = self.requests()[-1]
+                self.assertIn("Authorization: Bearer " + token, request["config"])
+                self.assertNotIn(token, json.dumps(request["args"]))
+                self.assertIsNone(request["exported_token"])
                 self.assertNotIn(token, result.stdout + result.stderr)
 
     def test_api_errors_and_empty_responses_leave_no_partial_download(self):
@@ -245,7 +259,7 @@ download_splash_file helpers/manage.py main "$WORK_DIR/helper.py"
         return child
 
     def assert_bootstrap_requests(self, result, *, expected_arguments):
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
         self.assertNotIn(TOKEN, result.stdout + result.stderr)
         self.assertEqual((self.directory / "child.log").read_text().splitlines(),
                          [TOKEN, *expected_arguments])
