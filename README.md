@@ -1,186 +1,189 @@
-# XRM-1 Installer
+# Splash Init
 
-Install **XRM-1** automatically using an OVHcloud Post-Installation Script, Cloud-Init, or manually through the terminal.
+نصب یکپارچهٔ **3x-ui + تنظیمات Splash + ProxyFleet XUI Sync** روی Ubuntu یا Debian.
+برای نصب Sync دیگر به کلون‌کردن یا اجرای نصب‌کنندهٔ مخزن دیگری نیاز نیست.
 
-The installer configures persistent fallback DNS resolvers before accessing GitHub. This prevents DNS failures when cloud-init or package upgrades restart `systemd-resolved`.
+## نصب روی سرور تازه
 
-The Node.js/PM2 file-upload receiver (`server.js`, port `3000`) is no longer installed. XRM-1 does not install its npm dependencies or start the upload server.
+با کاربر `root` اجرا کنید:
 
-This change applies to new installer runs. It does not stop or uninstall Node.js, PM2, or the upload server on previously configured servers.
+```bash
+curl --fail --location --retry 5 --retry-all-errors \
+  --connect-timeout 15 --max-time 120 \
+  https://raw.githubusercontent.com/exirhub/splash-init/main/install.sh \
+  --output /root/splash-init.sh && bash /root/splash-init.sh
+```
 
-## OVHcloud Post-Installation Script (P-I-S)
+اگر `curl` نصب نیست، ابتدا اجرا کنید:
 
-Paste the complete Bash script below into the **Post-Installation Script (P-I-S)** section when creating an Ubuntu or Debian server on OVHcloud.
+```bash
+apt-get update
+apt-get install -y ca-certificates curl
+```
 
-> [!IMPORTANT]
-> This is an executable Bash script. Do not add `#cloud-config` or a `runcmd` section.
+نصب‌کننده این مراحل را انجام می‌دهد:
+
+1. بررسی root، Ubuntu/Debian و systemd و جلوگیری از نصب هم‌زمان.
+2. نصب پیش‌نیازها و اعمال روال قبلی DNS، Swap یک‌گیگابایتی و تنظیمات TCP.
+3. نصب غیرتعاملی 3x-ui در صورت نبودن آن.
+4. اعتبارسنجی `x-ui-ads.db` و ورود آن **فقط وقتی پیش از نصب دیتابیسی وجود نداشته باشد**.
+5. نصب نسخهٔ همراه ProxyFleet Sync، تنظیمات و سرویس systemd.
+6. اجرای اولین Sync و فعال‌کردن تایمر **۱۰دقیقه‌ای** با حداکثر ۳۰ ثانیه تأخیر تصادفی.
+7. بررسی مجموعهٔ `TH-*`، Selector مربوط به `ADMOB-BALANCER` و تنظیمات runtime.
+8. نصب دستور دائمی `splash-init-update`.
+
+اجرای عادی، مانند نصب‌کنندهٔ قبلی، UFW را در صورت نصب‌بودن غیرفعال و DNS و
+تنظیمات شبکه را اعمال می‌کند. برای به‌روزرسانی از دستور مخصوص زیر استفاده کنید.
+Node.js، PM2 و دریافت‌کنندهٔ فایل `server.js` نصب نمی‌شوند.
+
+## به‌روزرسانی
+
+```bash
+sudo splash-init-update
+```
+
+یا از یک نصب‌کنندهٔ دریافت‌شده:
+
+```bash
+sudo bash /root/splash-init.sh --update-only
+```
+
+حالت `--update-only` کد یکپارچه و Sync را به‌روزرسانی می‌کند؛ دیتابیس اولیه را
+دوباره وارد نمی‌کند، 3x-ui را ارتقا نمی‌دهد و DNS، UFW، Swap یا TCP را تغییر
+نمی‌دهد. Sync طبق قواعد معمول خودش Outboundهای مدیریت‌شده را همگام می‌کند.
+تنظیمات، توکن، Inboundها، قواعد مسیریابی و state محدودیت ری‌استارت حفظ می‌شوند.
+
+اجرای `install.sh` از یک کلون کامل، همان نسخهٔ محلی را نصب می‌کند؛ برای آپدیت
+کلون ابتدا `git pull --ff-only` کنید. اگر فقط نصب‌کننده دریافت شده باشد، فایل‌های
+لازم از یک commit مشخص در **همین مخزن** دریافت می‌شوند. `SPLASH_REF` می‌تواند
+commit، tag یا branch باشد؛ مقدار پیش‌فرض `main` است.
+
+## دیتابیس و مسیریابی
+
+قالب پیش‌فرض **`x-ui-ads.db`** است و از قبل قاعدهٔ مسیریابی به `ADMOB-BALANCER`
+را دارد. این قالب در شروع هیچ Outbound مدیریت‌شدهٔ `TH-*` ندارد؛ بنابراین
+اولین فهرست معتبر و Ready از ProxyFleet فوراً وارد می‌شود.
+
+فایل قدیمی `x-ui.db` در مخزن حفظ شده، اما قاعدهٔ لازم برای این Balancer را
+ندارد و قالب مناسبی برای نصب یکپارچه نیست. اعتبارسنجی آن را پیش از تغییر
+دیتابیس رد می‌کند. نصب‌کننده قواعد دلخواه مسیریابی ایجاد یا حدس نمی‌زند.
+
+اگر `/etc/x-ui/x-ui.db` از قبل وجود داشته باشد، نصب‌کننده آن را حفظ می‌کند؛
+این دیتابیس باید خودش تنظیمات سازگار با Balancer را داشته باشد. قالب اولیه
+هیچ‌وقت برای بازنویسی کاربران یا تنظیمات موجود استفاده نمی‌شود.
+
+نصب‌کننده سرویس استاندارد `x-ui` و مسیر `/etc/x-ui/x-ui.db` را مدیریت می‌کند.
+اگر تنظیمات Sync موجود به سرویس یا دیتابیس دیگری اشاره کند، پیش از تغییرات
+میزبان متوقف می‌شود تا دیتابیس نامرتبطی ایجاد یا تغییر نکند.
+
+در نصب تازه، پیش از جایگزینی دیتابیس ساخته‌شده توسط نصب‌کنندهٔ رسمی، بک‌آپ
+سازگار با SQLite/WAL در `/var/lib/splash-init/backups/` تهیه می‌شود. اگر سرویس
+پس از ورود قالب بالا نیاید، بازگرداندن بک‌آپ و راه‌اندازی مجدد بررسی می‌شود؛
+خطا به‌عنوان موفقیت نصب اعلام نمی‌شود و بک‌آپ برای بازیابی باقی می‌ماند.
+
+## تنظیمات ProxyFleet
+
+فایل تنظیمات با دسترسی `0600` ساخته می‌شود:
+
+```text
+/etc/proxyfleet-xui-sync.env
+```
+
+آدرس پیش‌فرض همان آدرس پروژهٔ Sync است:
+
+```text
+http://85.237.211.23:8788/outbounds
+```
+
+در **اولین نصب**، متغیرهای `PROXYFLEET_OUTBOUNDS_URL` و
+`PROXYFLEET_OUTBOUNDS_TOKEN` مقادیر اولیه را تعیین می‌کنند. برای تغییر نصب
+موجود، فایل تنظیمات را ویرایش کنید؛ اجرای مجدد مقادیر موجود را با پیش‌فرض‌ها
+یا متغیرهای پوسته جایگزین نمی‌کند.
+
+```bash
+sudoedit /etc/proxyfleet-xui-sync.env
+sudo systemctl start proxyfleet-xui-sync.service
+```
+
+نصب تازه مسیر Xray را برای `amd64` یا `arm64` شناسایی می‌کند. مقدار سفارشی
+`XRAY_BINARY` در نصب موجود حفظ می‌شود. تنظیمات کامل در
+[راهنمای Sync همراه](vendor/proxyfleet-xui-sync/README.md) آمده است.
+
+## بررسی نتیجه
+
+```bash
+systemctl status x-ui --no-pager
+systemctl status proxyfleet-xui-sync.timer --no-pager
+systemctl list-timers proxyfleet-xui-sync.timer
+journalctl -u proxyfleet-xui-sync.service -n 100 --no-pager -o cat
+```
+
+| نتیجه | معنی |
+| --- | --- |
+| کد خروج `0` | نصب انجام شده و مجموعهٔ مدیریت‌شده و تنظیمات runtime سازگارند. |
+| کد خروج `2` و `SYNC PENDING` | اجزا نصب‌اند، ولی مجموعهٔ اولیه، runtime یا تغییر توپولوژی هنوز آماده نیست؛ تایمر دوباره بررسی می‌کند. |
+| کد خروج دیگر | خطایی رخ داده است؛ نصب کامل اعلام نمی‌شود. |
+
+موفق‌بودن `systemctl start` به‌تنهایی دریافت مجموعهٔ جدید را ثابت نمی‌کند؛
+Sync ممکن است به دلیل Readyنبودن فهرست یا قواعد پایداری، اجرا را عقب بیندازد.
+بررسی پایان نصب، سازگاری تنظیمات است؛ تست اتصال از ایران یا تضمین تازه‌بودن
+پاسخ ProxyFleet نیست. جزئیات اجرای جاری در لاگ سرویس ثبت می‌شود.
+
+پس از رفع مشکل، برای تلاش دوباره `sudo splash-init-update` را اجرا کنید.
+
+## Cloud-Init
+
+در بخش User Data سرور Ubuntu/Debian قرار دهید:
+
+```yaml
+#cloud-config
+package_update: true
+packages:
+  - ca-certificates
+  - curl
+runcmd:
+  - [bash, -c, 'set -e; curl --fail --location --retry 5 --retry-all-errors --connect-timeout 15 --max-time 120 https://raw.githubusercontent.com/exirhub/splash-init/main/install.sh --output /root/splash-init.sh; bash /root/splash-init.sh > /var/log/splash-init.log 2>&1']
+```
+
+## OVH Post-Installation Script و AWS
+
+برای P-I-S، اسکریپت Bash زیر را قرار دهید؛ `#cloud-config` اضافه نکنید:
 
 ```bash
 #!/usr/bin/env bash
 set -Eeuo pipefail
-umask 077
-
 export DEBIAN_FRONTEND=noninteractive
-
-INSTALL_URL="https://raw.githubusercontent.com/exirhub/xrm-1/main/install.sh"
-INSTALL_FILE="/root/install.sh"
-LOG_FILE="/var/log/xrm-post-install.log"
-DNS_FILE="/etc/systemd/resolved.conf.d/99-exir-dns.conf"
-
-exec > >(tee -a "$LOG_FILE") 2>&1
-trap 'echo "[ERROR] Installation failed at line ${LINENO}, exit code: $?"' ERR
-
-echo "[$(date -Is)] Starting XRM post-installation..."
-
-install -d -m 755 /etc/systemd/resolved.conf.d
-cat > "$DNS_FILE" <<'EOF'
-[Resolve]
-DNS=1.1.1.1 8.8.8.8
-FallbackDNS=9.9.9.9 8.8.4.4
-EOF
-
-systemctl restart systemd-resolved || true
-resolvectl flush-caches 2>/dev/null || true
-
-# Bypass a stale 127.0.0.53 stub that can remain after network service restarts.
-if [[ -e /etc/resolv.conf && ! -e /etc/resolv.conf.exir-backup ]]; then
-    cp -L /etc/resolv.conf /etc/resolv.conf.exir-backup || true
-fi
-RESOLV_TMP="$(mktemp)"
-printf '%s\n' \
-    'nameserver 1.1.1.1' \
-    'nameserver 8.8.8.8' \
-    'nameserver 9.9.9.9' \
-    'options timeout:2 attempts:3' > "$RESOLV_TMP"
-chmod 644 "$RESOLV_TMP"
-cp --remove-destination "$RESOLV_TMP" /etc/resolv.conf
-rm -f "$RESOLV_TMP"
-
-for attempt in {1..10}; do
-    if getent ahostsv4 raw.githubusercontent.com >/dev/null 2>&1; then
-        break
-    fi
-
-    if [[ "$attempt" -eq 10 ]]; then
-        echo "Unable to resolve raw.githubusercontent.com."
-        exit 1
-    fi
-
-    echo "Waiting for DNS - attempt ${attempt}/10"
-    sleep 5
-done
-
 apt-get -o Acquire::Retries=5 update
 apt-get -o Acquire::Retries=5 install -y ca-certificates curl
-
-curl --fail --location \
-    --retry 10 --retry-all-errors --retry-delay 3 \
-    --connect-timeout 20 --max-time 300 \
-    "$INSTALL_URL" --output "$INSTALL_FILE"
-
-if [[ ! -s "$INSTALL_FILE" ]]; then
-    echo "Downloaded installer is empty."
-    exit 1
-fi
-
-chmod 700 "$INSTALL_FILE"
-cd /root
-/bin/bash "$INSTALL_FILE"
-
-if systemctl is-active --quiet x-ui; then
-    echo "[$(date -Is)] XRM installation completed successfully."
-else
-    echo "Installation completed, but the x-ui service is not active."
-    systemctl status x-ui --no-pager || true
-    exit 1
-fi
+curl --fail --location --retry 5 --retry-all-errors \
+  --connect-timeout 15 --max-time 120 \
+  https://raw.githubusercontent.com/exirhub/splash-init/main/install.sh \
+  --output /root/splash-init.sh
+bash /root/splash-init.sh > /var/log/splash-init.log 2>&1
 ```
 
-After the server has started, inspect the installation log and service status with:
+فایل `aws.sh` نیز ورودی همان نصب‌کننده است و منطق نصب یا دیتابیس جداگانه ندارد.
 
-```bash
-tail -f /var/log/xrm-post-install.log
-systemctl status x-ui --no-pager
-```
+## نسخهٔ همراه و تست‌ها
 
-## Automatic Installation with Cloud-Init
-
-Paste the following configuration into the **Cloud-Init / User Data** section when creating your server:
-
-```yaml
-#cloud-config
-
-write_files:
-  - path: /etc/systemd/resolved.conf.d/99-exir-dns.conf
-    permissions: "0644"
-    content: |
-      [Resolve]
-      DNS=1.1.1.1 8.8.8.8
-      FallbackDNS=9.9.9.9 8.8.4.4
-
-runcmd:
-  - systemctl restart systemd-resolved
-  - cp -L /etc/resolv.conf /etc/resolv.conf.exir-backup
-  - printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\nnameserver 9.9.9.9\noptions timeout:2 attempts:3\n' > /run/xrm-resolv.conf
-  - cp --remove-destination /run/xrm-resolv.conf /etc/resolv.conf
-  - apt-get -o Acquire::Retries=5 update
-  - apt-get -o Acquire::Retries=5 install -y ca-certificates curl
-  - curl -fL --retry 10 --retry-all-errors --retry-delay 3 https://raw.githubusercontent.com/exirhub/xrm-1/main/install.sh -o /root/install.sh
-  - chmod 700 /root/install.sh
-  - bash /root/install.sh
-```
-
-## Manual Installation
-
-Run the following block as the `root` user. It configures DNS before downloading the installer:
-
-```bash
-install -d -m 755 /etc/systemd/resolved.conf.d
-
-printf '%s\n' \
-  '[Resolve]' \
-  'DNS=1.1.1.1 8.8.8.8' \
-  'FallbackDNS=9.9.9.9 8.8.4.4' \
-  > /etc/systemd/resolved.conf.d/99-exir-dns.conf
-
-systemctl restart systemd-resolved
-
-cp -L /etc/resolv.conf /etc/resolv.conf.exir-backup 2>/dev/null || true
-printf '%s\n' \
-  'nameserver 1.1.1.1' \
-  'nameserver 8.8.8.8' \
-  'nameserver 9.9.9.9' \
-  'options timeout:2 attempts:3' > /run/xrm-resolv.conf
-cp --remove-destination /run/xrm-resolv.conf /etc/resolv.conf
-
-cd /root
-curl -fL --retry 10 --retry-all-errors --retry-delay 3 \
-  https://raw.githubusercontent.com/exirhub/xrm-1/main/install.sh \
-  -o install.sh
-chmod 700 install.sh
-bash install.sh
-```
-
-## One-Line Installation
-
-Use this command on a server where DNS already resolves GitHub:
-
-```bash
-curl -fL --retry 10 --retry-all-errors https://raw.githubusercontent.com/exirhub/xrm-1/main/install.sh | bash
-```
-
-> [!IMPORTANT]
-> Run the installer with `root` privileges on a newly created server.
-
-## Requirements
-
-- Ubuntu or Debian-based server
-- Root access
-- Active internet connection
-- Access to `github.com`, `api.github.com`, and `raw.githubusercontent.com`
-
-## Repository
+Sync همراه، بدون تغییر رفتار runtime، از این commit است:
 
 ```text
-https://github.com/exirhub/xrm-1
+exirhub/proxyfleet-xui-sync
+cba805f382da7ec104ffb73959e82ea8ba84ad9e
 ```
+
+[فایل منشأ و checksumها](vendor/proxyfleet-xui-sync.source.json) این نسخه را
+مشخص می‌کند. آپدیتر نسخهٔ منتشرشده در **splash-init** را نصب می‌کند؛ تغییرات
+آیندهٔ مخزن مستقل Sync باید ابتدا همراه با تست‌ها به این مخزن وارد شوند.
+
+```bash
+bash -n install.sh
+bash -n aws.sh
+python3 -m unittest discover -s tests -p 'test_*.py' -v
+python3 vendor/proxyfleet-xui-sync/tests/smoke_test.py
+```
+
+تست‌ها از فایل‌ها و دیتابیس‌های موقت و سرویس‌های شبیه‌سازی‌شده استفاده می‌کنند.
+CI سلامت فایل‌های دیتابیس واقعی مخزن را نیز به‌صورت فقط‌خواندنی بررسی می‌کند؛
+هیچ نصب یا ری‌استارتی روی سرور عملیاتی انجام نمی‌شود.

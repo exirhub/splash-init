@@ -22,15 +22,10 @@ jobs:
         run: |
           bash -n install.sh
           bash -n aws.sh
-          if [ -f vendor/proxyfleet-xui-sync/install.sh ]; then
-            bash -n vendor/proxyfleet-xui-sync/install.sh
-          fi
+          bash -n vendor/proxyfleet-xui-sync/install.sh
       - name: Safe installer tests and read-only seed validation
         env:
           REQUIRE_SPLASH_SEEDS: '1'
         run: python3 -m unittest discover -s tests -p 'test_*.py' -v
       - name: Vendored sync regression checks
-        run: |
-          if [ -f vendor/proxyfleet-xui-sync/tests/smoke_test.py ]; then
-            python3 vendor/proxyfleet-xui-sync/tests/smoke_test.py
-          fi
+        run: python3 vendor/proxyfleet-xui-sync/tests/smoke_test.py

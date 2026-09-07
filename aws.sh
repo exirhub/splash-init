@@ -1,28 +1,18 @@
-sudo wget https://github.com/exirhub/exirvpn-balancer-config/raw/refs/heads/main/x-ui.db
-echo "n" | bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)
-sudo systemctl stop x-ui
-sudo chmod +x ./x-ui.db
-sudo cp ./x-ui.db /etc/x-ui/x-ui.db
-sudo systemctl start x-ui
-sudo ufw disable
-sudo fallocate -l 1G /swapfile
-sudo chmod 600 /swapfile
-sudo mkswap /swapfile
-sudo swapon /swapfile
-sudo echo '/swapfile none swap sw 0 0' >> /etc/fstab
-
-echo "Applying TCP buffer optimizations..."
-sudo sysctl -w net.core.rmem_max=67108864
-sudo sysctl -w net.core.wmem_max=67108864
-sudo sysctl -w net.core.netdev_max_backlog=100000
-# Persist changes in sysctl.conf
-echo "Saving settings to /etc/sysctl.conf..."
-sudo cat <<EOF >> /etc/sysctl.conf
-net.core.rmem_max = 67108864
-net.core.wmem_max = 67108864
-net.core.netdev_max_backlog = 100000
-EOF
-# Apply settings
-sysctl -p
-
-echo "TCP buffer optimizations applied successfully!"
+#!/usr/bin/env bash
+# Compatibility entry point: installation logic lives in install.sh.
+set -Eeuo pipefail
+[[ $EUID -eq 0 ]] || { echo 'Run this bootstrap as root.' >&2; exit 1; }
+ref="${SPLASH_REF:-main}"
+[[ "$ref" =~ ^[a-zA-Z0-9][a-zA-Z0-9._/-]*$ ]] || { echo 'Invalid SPLASH_REF.' >&2; exit 1; }
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -s "$script_dir/install.sh" ]]; then exec bash "$script_dir/install.sh" "$@"; fi
+command -v curl >/dev/null || { echo 'Install curl and ca-certificates first.' >&2; exit 1; }
+work="$(mktemp -d /tmp/splash-init-bootstrap.XXXXXX)"
+trap 'rm -rf -- "$work"' EXIT
+curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 \
+  --retry 5 --retry-all-errors --retry-delay 3 --retry-max-time 180 \
+  --connect-timeout 15 --max-time 120 \
+  --output "$work/install.sh" \
+  "https://raw.githubusercontent.com/exirhub/splash-init/$ref/install.sh"
+bash -n "$work/install.sh"
+bash "$work/install.sh" "$@"
